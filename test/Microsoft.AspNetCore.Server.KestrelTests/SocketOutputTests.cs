@@ -67,6 +67,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             // This should match _maxBytesPreCompleted in SocketOutput
             var maxBytesPreCompleted = 65536;
             var completeQueue = new Queue<Action<int>>();
+            var writeRequestedWh = new ManualResetEventSlim();
 
             // Arrange
             var mockLibuv = new MockLibuv
@@ -74,6 +75,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 OnWrite = (socket, buffers, triggerCompleted) =>
                 {
                     completeQueue.Enqueue(triggerCompleted);
+                    writeRequestedWh.Set();
                     return 0;
                 }
             };
@@ -117,8 +119,10 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 Assert.True(completedWh.Wait(1000));
 
                 // Cleanup
+                writeRequestedWh.Reset();
                 var cleanupTask = socketOutput.WriteAsync(
                     default(ArraySegment<byte>), default(CancellationToken), socketDisconnect: true);
+                Assert.True(writeRequestedWh.Wait(1000));
 
                 foreach (var triggerCompleted in completeQueue)
                 {
@@ -192,8 +196,10 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 Assert.True(writeTask2.Wait(1000));
 
                 // Cleanup
+                writeRequestedWh.Reset();
                 var cleanupTask = socketOutput.WriteAsync(
                     default(ArraySegment<byte>), default(CancellationToken), socketDisconnect: true);
+                Assert.True(writeRequestedWh.Wait(1000));
 
                 foreach (var triggerCompleted in completeQueue)
                 {
@@ -208,6 +214,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             // This should match _maxBytesPreCompleted in SocketOutput
             var maxBytesPreCompleted = 65536;
             var completeQueue = new Queue<Action<int>>();
+            var writeRequestedWh = new ManualResetEventSlim();
 
             // Arrange
             var mockLibuv = new MockLibuv
@@ -215,6 +222,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 OnWrite = (socket, buffers, triggerCompleted) =>
                 {
                     completeQueue.Enqueue(triggerCompleted);
+                    writeRequestedWh.Set();
                     return 0;
                 }
             };
@@ -301,8 +309,10 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                     Assert.True(true);
 
                     // Cleanup
+                    writeRequestedWh.Reset();
                     var cleanupTask = ((SocketOutput)socketOutput).WriteAsync(
                         default(ArraySegment<byte>), default(CancellationToken), socketDisconnect: true);
+                    Assert.True(writeRequestedWh.Wait(1000));
 
                     foreach (var triggerCompleted in completeQueue)
                     {
@@ -318,6 +328,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             // This should match _maxBytesPreCompleted in SocketOutput
             var maxBytesPreCompleted = 65536;
             var completeQueue = new Queue<Action<int>>();
+            var writeRequestedWh = new ManualResetEventSlim();
 
             // Arrange
             var mockLibuv = new MockLibuv
@@ -325,6 +336,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 OnWrite = (socket, buffers, triggerCompleted) =>
                 {
                     completeQueue.Enqueue(triggerCompleted);
+                    writeRequestedWh.Set();
                     return 0;
                 }
             };
@@ -386,8 +398,10 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                     Assert.True(task3Canceled.IsCanceled);
 
                     // Cleanup
+                    writeRequestedWh.Reset();
                     var cleanupTask = ((SocketOutput)socketOutput).WriteAsync(
                         default(ArraySegment<byte>), default(CancellationToken), socketDisconnect: true);
+                    Assert.True(writeRequestedWh.Wait(1000));
 
                     foreach (var triggerCompleted in completeQueue)
                     {
@@ -403,7 +417,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             // This should match _maxBytesPreCompleted in SocketOutput
             var maxBytesPreCompleted = 65536;
             var completeQueue = new Queue<Action<int>>();
-            var onWriteWh = new ManualResetEventSlim();
+            var writeRequestedWh = new ManualResetEventSlim();
 
             // Arrange
             var mockLibuv = new MockLibuv
@@ -411,7 +425,7 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 OnWrite = (socket, buffers, triggerCompleted) =>
                 {
                     completeQueue.Enqueue(triggerCompleted);
-                    onWriteWh.Set();
+                    writeRequestedWh.Set();
 
                     return 0;
                 }
@@ -450,16 +464,16 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 // Assert
                 // The first write should pre-complete since it is <= _maxBytesPreCompleted.
                 Assert.True(completedWh.Wait(1000));
-                Assert.True(onWriteWh.Wait(1000));
+                Assert.True(writeRequestedWh.Wait(1000));
                 // Arrange
                 completedWh.Reset();
-                onWriteWh.Reset();
+                writeRequestedWh.Reset();
 
                 // Act
                 socketOutput.WriteAsync(buffer, default(CancellationToken)).ContinueWith(onCompleted);
                 socketOutput.WriteAsync(buffer, default(CancellationToken)).ContinueWith(onCompleted2);
 
-                Assert.True(onWriteWh.Wait(1000));
+                Assert.True(writeRequestedWh.Wait(1000));
                 completeQueue.Dequeue()(0);
 
                 // Assert 
@@ -476,8 +490,10 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
                 Assert.True(completedWh2.Wait(1000));
 
                 // Cleanup
+                writeRequestedWh.Reset();
                 var cleanupTask = ((SocketOutput)socketOutput).WriteAsync(
                     default(ArraySegment<byte>), default(CancellationToken), socketDisconnect: true);
+                Assert.True(writeRequestedWh.Wait(1000));
 
                 foreach (var triggerCompleted in completeQueue)
                 {
