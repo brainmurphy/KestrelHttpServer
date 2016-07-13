@@ -22,7 +22,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private readonly ManualResetEventSlim _manualResetEvent = new ManualResetEventSlim(false, 0);
 
         private Action _awaitableState;
-        private Exception _awaitableError;
 
         private MemoryPoolBlock _head;
         private MemoryPoolBlock _tail;
@@ -33,6 +32,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private bool _consuming;
         private bool _disposed;
 
+        private TaskCompletionSource<bool> _tcs = new TaskCompletionSource<bool>();
+
         public SocketInput(MemoryPool memory, IThreadPool threadPool, IBufferSizeControl bufferSizeControl = null)
         {
             _memory = memory;
@@ -41,20 +42,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             _awaitableState = _awaitableIsNotCompleted;
         }
 
-        public bool RemoteIntakeFin { get; set; }
-
         public bool IsCompleted => ReferenceEquals(_awaitableState, _awaitableIsCompleted);
+
+        internal bool ReadingInput => _tcs.Task.Status == TaskStatus.WaitingForActivation;
 
         public bool CheckFinOrThrow()
         {
             lock (_sync)
             {
-                if (_awaitableError != null)
-                {
-                    ThrowOnConnectionError();
-                }
-
-                return RemoteIntakeFin;
+                CheckConnectionError();
+                return _tcs.Task.IsCompleted;
             }
         }
 
@@ -100,7 +97,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 }
                 else
                 {
-                    RemoteIntakeFin = true;
+                    FinReceived();
                 }
 
                 Complete();
@@ -135,13 +132,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     _pinned = null;
                 }
 
-                if (count == 0)
-                {
-                    RemoteIntakeFin = true;
-                }
                 if (error != null)
                 {
-                    _awaitableError = error;
+                    SetConnectionError(error);
+                }
+                else if (count == 0)
+                {
+                    FinReceived();
                 }
 
                 Complete();
@@ -229,8 +226,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
                     if (!examined.IsDefault &&
                         examined.IsEnd &&
-                        RemoteIntakeFin == false &&
-                        _awaitableError == null)
+                        ReadingInput)
                     {
                         _manualResetEvent.Reset();
 
@@ -265,8 +261,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         public void AbortAwaiting()
         {
-            _awaitableError = new TaskCanceledException("The request was aborted");
-
+            SetConnectionError(new TaskCanceledException("The request was aborted"));
             Complete();
         }
 
@@ -292,7 +287,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             }
             else
             {
-                _awaitableError = new InvalidOperationException("Concurrent reads are not supported.");
+                SetConnectionError(new InvalidOperationException("Concurrent reads are not supported."));
 
                 Interlocked.Exchange(
                     ref _awaitableState,
@@ -317,10 +312,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                 _manualResetEvent.Wait();
             }
 
-            if (_awaitableError != null)
-            {
-                ThrowOnConnectionError();
-            }
+            CheckConnectionError();
         }
 
         public void Dispose()
@@ -350,14 +342,27 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             }
         }
 
-        private void ThrowOnConnectionError()
+        private void SetConnectionError(Exception error)
         {
-            var error = _awaitableError;
-            if (error is TaskCanceledException || error is InvalidOperationException)
+            _tcs.TrySetException(error);
+        }
+
+        private void FinReceived()
+        {
+            _tcs.TrySetResult(true);
+        }
+
+        private void CheckConnectionError()
+        {
+            var error = _tcs.Task.Exception?.InnerException;
+            if (error != null)
             {
-                throw error;
+                if (error is TaskCanceledException || error is InvalidOperationException)
+                {
+                    throw error;
+                }
+                throw new IOException(error.Message, error);
             }
-            throw new IOException(error.Message, error);
         }
     }
 }
