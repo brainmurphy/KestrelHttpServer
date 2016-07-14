@@ -14,6 +14,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Testing;
 using Microsoft.AspNetCore.Testing.xunit;
 using Microsoft.Extensions.Logging.Testing;
 using Newtonsoft.Json;
@@ -190,44 +191,39 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
         [Fact]
         public async Task ConnectionResetAbortsRequest()
         {
-            const int connectionErrorEventId = 14; // from KestrelTrace.cs
-
-            var testSink = new TestSink(write => write.EventId.Id == connectionErrorEventId);
-            var builder = new WebHostBuilder()
-                .UseLoggerFactory(new TestLoggerFactory(testSink, true))
-                .UseKestrel()
-                .UseUrls($"http://127.0.0.1:0")
-                .Configure(app => app.Run(context =>
-                {
-                    return Task.FromResult(0);
-                }));
-
-            using (var host = builder.Build())
+            await Task.Run(() =>
             {
-                host.Start();
+                const int connectionErrorEventId = 14; // from KestrelTrace.cs
 
-                using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
-                {
-                    socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
-                    socket.LingerState = new LingerOption(true, 0);
-                }
-
-                // Give it some time for the connection error log message to be logged
-                var filteredWrites = testSink.Writes.Where(write => write.EventId.Id == connectionErrorEventId);
-                for (var i = 0; i < 10; i++)
-                {
-                    if (filteredWrites.Any())
+                var testSink = new TestSink(write => write.EventId.Id == connectionErrorEventId);
+                var builder = new WebHostBuilder()
+                    .UseLoggerFactory(new TestLoggerFactory(testSink, true))
+                    .UseKestrel()
+                    .UseUrls($"http://127.0.0.1:0")
+                    .Configure(app => app.Run(context =>
                     {
-                        break;
+                        return Task.FromResult(0);
+                    }));
+
+                using (var host = builder.Build())
+                {
+                    host.Start();
+
+                    using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                    {
+                        socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
+                        socket.LingerState = new LingerOption(true, 0);
                     }
 
-                    await Task.Delay(50);
-                }
+                    // Give it some time for the connection error log message to be logged
+                    var filteredWrites = testSink.Writes.Where(write => write.EventId.Id == connectionErrorEventId);
+                    while (!filteredWrites.Any()) ;
 
-                var connectionErrorMessage = filteredWrites.FirstOrDefault();
-                Assert.NotNull(connectionErrorMessage);
-                Assert.Contains("ECONNRESET", connectionErrorMessage.Exception.Message);
-            }
+                    var connectionErrorMessage = filteredWrites.FirstOrDefault();
+                    Assert.NotNull(connectionErrorMessage);
+                    Assert.Contains("ECONNRESET", connectionErrorMessage.Exception.Message);
+                }
+            }).TimeoutAfter(TimeSpan.FromMilliseconds(2500));
         }
 
         [Fact]

@@ -32,7 +32,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
         private bool _consuming;
         private bool _disposed;
 
-        private TaskCompletionSource<bool> _tcs = new TaskCompletionSource<bool>();
+        private TaskCompletionSource<object> _tcs = new TaskCompletionSource<object>();
 
         public SocketInput(MemoryPool memory, IThreadPool threadPool, IBufferSizeControl bufferSizeControl = null)
         {
@@ -44,15 +44,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         public bool IsCompleted => ReferenceEquals(_awaitableState, _awaitableIsCompleted);
 
-        internal bool ReadingInput => _tcs.Task.Status == TaskStatus.WaitingForActivation;
+        private bool ReadingInput => _tcs.Task.Status == TaskStatus.WaitingForActivation;
 
         public bool CheckFinOrThrow()
         {
-            lock (_sync)
-            {
-                CheckConnectionError();
-                return _tcs.Task.IsCompleted;
-            }
+            CheckConnectionError();
+            return _tcs.Task.Status == TaskStatus.RanToCompletion;
         }
 
         public MemoryPoolBlock IncomingStart()
@@ -349,7 +346,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
         private void FinReceived()
         {
-            _tcs.TrySetResult(true);
+            _tcs.TrySetResult(null);
         }
 
         private void CheckConnectionError()
